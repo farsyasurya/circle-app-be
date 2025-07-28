@@ -1,0 +1,231 @@
+openapi: 3.0.0
+info:
+  title: Fylo API
+  version: 1.0.0
+  description: Dokumentasi API untuk aplikasi sosial media Fylo
+
+servers:
+  - url: http://localhost:3000
+    description: Local server
+
+paths:
+  /auth/register:
+    post:
+      summary: Register user baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "201":
+          description: Berhasil register
+
+  /auth/login:
+    post:
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Berhasil login
+
+  /auth/add-followers:
+    post:
+      summary: Ikuti user lain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                followId:
+                  type: number
+      responses:
+        "200":
+          description: Follow berhasil
+
+  /auth/unfollow/{id}:
+    delete:
+      summary: Berhenti mengikuti user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Unfollow berhasil
+
+  /auth/get-follow-count/{userId}:
+    get:
+      summary: Ambil jumlah followers dan following
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Data jumlah follow
+
+  /auth/search:
+    get:
+      summary: Cari user berdasarkan nama
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hasil pencarian user
+
+  /auth/profile/{id}:
+    get:
+      summary: Ambil data profil user lain
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Data profil user
+
+  /auth/profile/update:
+    put:
+      summary: Update profil user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                avatar:
+                  type: string
+      responses:
+        "200":
+          description: Profil berhasil diupdate
+
+  /post:
+    get:
+      summary: Ambil semua postingan
+      responses:
+        "200":
+          description: List semua post
+
+    post:
+      summary: Buat postingan baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                image:
+                  type: string
+      responses:
+        "201":
+          description: Post berhasil dibuat
+
+  /post/{id}:
+    get:
+      summary: Ambil detail post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Detail post
+
+  /post/{id}/like:
+    post:
+      summary: Like sebuah post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Post berhasil di-like
+
+  /post/{id}/unlike:
+    delete:
+      summary: Unlike sebuah post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Post berhasil di-unlike
+
+  /post/{id}/comment:
+    post:
+      summary: Tambah komentar di post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+      responses:
+        "201":
+          description: Komentar berhasil ditambahkan
+
+  /post/{id}/comments:
+    get:
+      summary: Ambil semua komentar dari post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Daftar komentar
