@@ -18,7 +18,7 @@ dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const httpServer = (0, http_1.createServer)(app);
-const swaggerDocument = yamljs_1.default.load("./swagger.yaml");
+const swaggerDocument = yamljs_1.default.load(path_1.default.join(__dirname, "swagger.yaml"));
 app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerDocument));
 const io = new socket_io_1.Server(httpServer, {
     cors: {
