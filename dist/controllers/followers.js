@@ -8,31 +8,32 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSuggestedUsers = exports.createFollowing = exports.createFollowers = exports.getFollowCount = exports.unFollow = exports.getFollowing = exports.getFollowers = void 0;
+exports.getSuggestedUsers = exports.createFollowing = exports.createFollowers = exports.unFollow = exports.getFollowCount = exports.getFollowing = exports.getFollowers = void 0;
 const client_1 = require("@prisma/client");
+const redis_1 = __importDefault(require("../lib/redis"));
 const prisma = new client_1.PrismaClient();
+const CACHE_TTL = 60 * 5; // 5 minutes
 const getFollowers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = Number(req.params.userId);
+    const cacheKey = `followers:${userId}`;
     try {
-        const userId = Number(req.params.userId);
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached)
+            return res.json(JSON.parse(cached));
         const followers = yield prisma.followers.findMany({
-            where: {
-                userId: userId,
-                flag: 1,
-            },
+            where: { userId, flag: 1 },
             include: {
                 user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        avatar: true,
-                    },
+                    select: { id: true, name: true, avatar: true },
                 },
             },
-            orderBy: {
-                createdAt: "desc",
-            },
+            orderBy: { createdAt: "desc" },
         });
+        yield redis_1.default.set(cacheKey, JSON.stringify(followers), "EX", CACHE_TTL);
         res.json(followers);
     }
     catch (error) {
@@ -42,26 +43,22 @@ const getFollowers = (req, res) => __awaiter(void 0, void 0, void 0, function* (
 });
 exports.getFollowers = getFollowers;
 const getFollowing = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = Number(req.params.userId);
+    const cacheKey = `following:${userId}`;
     try {
-        const userId = Number(req.params.userId);
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached)
+            return res.json(JSON.parse(cached));
         const following = yield prisma.followers.findMany({
-            where: {
-                userId: userId,
-                flag: 2,
-            },
+            where: { userId, flag: 2 },
             include: {
                 user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        avatar: true,
-                    },
+                    select: { id: true, name: true, avatar: true },
                 },
             },
-            orderBy: {
-                createdAt: "desc",
-            },
+            orderBy: { createdAt: "desc" },
         });
+        yield redis_1.default.set(cacheKey, JSON.stringify(following), "EX", CACHE_TTL);
         res.json(following);
     }
     catch (error) {
@@ -70,12 +67,38 @@ const getFollowing = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.getFollowing = getFollowing;
-const unFollow = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const getFollowCount = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = Number(req.params.userId);
+    const cacheKey = `followCount:${userId}`;
     try {
-        const id = Number(req.params.id);
-        yield prisma.followers.delete({
-            where: { id },
-        });
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached)
+            return res.json(JSON.parse(cached));
+        const [followers, following] = yield Promise.all([
+            prisma.followers.count({ where: { userId, flag: 1 } }),
+            prisma.followers.count({ where: { userId, flag: 2 } }),
+        ]);
+        const data = { totalFollowers: followers, totalFollowing: following };
+        yield redis_1.default.set(cacheKey, JSON.stringify(data), "EX", CACHE_TTL);
+        res.json(data);
+    }
+    catch (error) {
+        console.error(error);
+        res
+            .status(500)
+            .json({ message: "Gagal mengambil jumlah followers/following", error });
+    }
+});
+exports.getFollowCount = getFollowCount;
+const unFollow = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = Number(req.params.id);
+    try {
+        const followRecord = yield prisma.followers.findUnique({ where: { id } });
+        if (!followRecord)
+            return res.status(404).json({ message: "Data follow tidak ditemukan" });
+        yield prisma.followers.delete({ where: { id } });
+        // Invalidate both users' follow caches
+        yield redis_1.default.del(`followers:${followRecord.userId}`, `following:${followRecord.userId}`, `followCount:${followRecord.userId}`, `suggested:${followRecord.userId}`);
         res.json({ message: "Unfollow berhasil" });
     }
     catch (error) {
@@ -84,30 +107,6 @@ const unFollow = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.unFollow = unFollow;
-const getFollowCount = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userId = Number(req.params.userId);
-        const followers = yield prisma.followers.count({
-            where: {
-                userId: userId,
-                flag: 1,
-            },
-        });
-        const following = yield prisma.followers.count({
-            where: {
-                userId,
-                flag: 2,
-            },
-        });
-        res.json({ totalFollowers: followers, totalFollowing: following });
-    }
-    catch (error) {
-        res
-            .status(500)
-            .json({ message: "Gagal mengambil jumlah followers/following" });
-    }
-});
-exports.getFollowCount = getFollowCount;
 const createFollowers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { followId, userId } = req.body;
     if (userId === followId) {
@@ -115,19 +114,14 @@ const createFollowers = (req, res) => __awaiter(void 0, void 0, void 0, function
             .status(400)
             .json({ message: "Kamu tidak bisa mengikuti dirimu sendiri" });
     }
-    const cekFollowers = yield prisma.followers.findFirst({
-        where: { followId, userId, flag: 1 },
-    });
-    if (cekFollowers) {
-        return res.json({ message: "gagal follow" });
-    }
     try {
+        const existing = yield prisma.followers.findFirst({
+            where: { followId, userId, flag: 1 },
+        });
+        if (existing)
+            return res.json({ message: "Sudah mengikuti" });
         const followers = yield prisma.followers.create({
-            data: {
-                followId,
-                userId,
-                flag: 1,
-            },
+            data: { followId, userId, flag: 1 },
         });
         const user = yield prisma.user.findUnique({
             where: { id: userId },
@@ -141,6 +135,8 @@ const createFollowers = (req, res) => __awaiter(void 0, void 0, void 0, function
             fromUserName: (user === null || user === void 0 ? void 0 : user.name) || "Seseorang",
             message: "Kamu punya pengikut baru!",
         });
+        // Invalidate related caches
+        yield redis_1.default.del(`followers:${followId}`, `followCount:${followId}`, `suggested:${userId}`);
         return res.status(201).json({ message: "Followed", followers });
     }
     catch (err) {
@@ -153,22 +149,14 @@ const createFollowing = (req, res) => __awaiter(void 0, void 0, void 0, function
     const { followId, userId } = req.body;
     try {
         const following = yield prisma.followers.create({
-            data: {
-                followId: followId,
-                userId: userId,
-                flag: 2,
-            },
+            data: { followId, userId, flag: 2 },
         });
         const cekFollowers = yield prisma.followers.findFirst({
             where: { followId: userId, userId: followId, flag: 1 },
         });
         if (!cekFollowers) {
-            const followers = yield prisma.followers.create({
-                data: {
-                    followId: userId,
-                    userId: followId,
-                    flag: 1,
-                },
+            yield prisma.followers.create({
+                data: { followId: userId, userId: followId, flag: 1 },
             });
         }
         const user = yield prisma.user.findUnique({
@@ -183,9 +171,8 @@ const createFollowing = (req, res) => __awaiter(void 0, void 0, void 0, function
             fromUserName: (user === null || user === void 0 ? void 0 : user.name) || "Seseorang",
             message: "Kamu punya pengikut baru!",
         });
-        return res
-            .status(201)
-            .json({ message: "Following created", following: following });
+        yield redis_1.default.del(`following:${userId}`, `followers:${followId}`, `followCount:${userId}`, `followCount:${followId}`, `suggested:${userId}`);
+        return res.status(201).json({ message: "Following created", following });
     }
     catch (err) {
         console.error("Gagal membuat following:", err);
@@ -196,36 +183,30 @@ const createFollowing = (req, res) => __awaiter(void 0, void 0, void 0, function
 });
 exports.createFollowing = createFollowing;
 const getSuggestedUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = Number(req.params.userId);
+    const cacheKey = `suggested:${userId}`;
+    if (isNaN(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" });
+    }
     try {
-        const userId = Number(req.params.userId);
-        if (isNaN(userId)) {
-            return res.status(400).json({ message: "Invalid user ID" });
-        }
-        // Ambil semua user yang **bukan** dirinya sendiri dan belum di-follow
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached)
+            return res.json(JSON.parse(cached));
         const following = yield prisma.followers.findMany({
-            where: {
-                userId: userId,
-                flag: 2, // mengikuti siapa saja
-            },
-            select: {
-                followId: true,
-            },
+            where: { userId, flag: 2 },
+            select: { followId: true },
         });
         const followingIds = following.map((f) => f.followId);
         const suggestedUsers = yield prisma.user.findMany({
             where: {
                 id: {
-                    notIn: [...followingIds, userId], // bukan yang sudah difollow dan bukan diri sendiri
+                    notIn: [...followingIds, userId],
                 },
             },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                avatar: true,
-            },
-            take: 5, // misalnya ambil 5 saja
+            select: { id: true, name: true, email: true, avatar: true },
+            take: 5,
         });
+        yield redis_1.default.set(cacheKey, JSON.stringify(suggestedUsers), "EX", CACHE_TTL);
         res.json(suggestedUsers);
     }
     catch (err) {

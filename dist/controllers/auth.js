@@ -19,6 +19,7 @@ const client_1 = require("@prisma/client");
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const redis_1 = __importDefault(require("../lib/redis"));
 dotenv_1.default.config();
 const prisma = new client_1.PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || "default_secret";
@@ -99,7 +100,26 @@ exports.logout = logout;
 const getProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
-    const user = yield prisma.user.findUnique({ where: { id: userId } });
+    if (!userId)
+        return res.status(401).json({ message: "Unauthorized" });
+    // Cek cache dulu
+    const cached = yield redis_1.default.get(`user:profile:${userId}`);
+    if (cached) {
+        return res.json(JSON.parse(cached));
+    }
+    const user = yield prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+        },
+    });
+    if (!user)
+        return res.status(404).json({ message: "User not found" });
+    // Simpan ke Redis 5 menit
+    yield redis_1.default.set(`user:profile:${userId}`, JSON.stringify(user), "EX", 60 * 5);
     res.json(user);
 });
 exports.getProfile = getProfile;
@@ -108,6 +128,10 @@ const getUserById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         const userId = Number(req.params.id);
         if (isNaN(userId)) {
             return res.status(400).json({ message: "Invalid user ID" });
+        }
+        const cached = yield redis_1.default.get(`user:profile:${userId}`);
+        if (cached) {
+            return res.json(JSON.parse(cached));
         }
         const user = yield prisma.user.findUnique({
             where: { id: userId },
@@ -133,6 +157,7 @@ const getUserById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         const followingCount = yield prisma.followers.count({
             where: { userId: userId, flag: 2 },
         });
+        yield redis_1.default.set(`user:profile:${userId}`, JSON.stringify(user), "EX", 60 * 5);
         res.json(Object.assign(Object.assign({}, user), { followersCount,
             followingCount, postsCount: user.posts.length }));
     }
@@ -145,7 +170,7 @@ exports.getUserById = getUserById;
 const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
-        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId; // pastikan pakai userId dari middleware
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
         if (!userId) {
             return res.status(401).json({ message: "Unauthorized" });
         }
@@ -157,7 +182,6 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         }
         let avatarPath = user.avatar;
         if (avatarFile) {
-            // Hapus avatar lama jika ada
             if (avatarPath) {
                 const oldPath = path_1.default.join(__dirname, "..", avatarPath);
                 if (fs_1.default.existsSync(oldPath)) {
@@ -169,7 +193,6 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     }
                 }
             }
-            // Simpan path baru
             avatarPath = `/uploads/avatars/${avatarFile.filename}`;
         }
         const updatedUser = yield prisma.user.update({
@@ -179,6 +202,8 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 avatar: avatarPath,
             },
         });
+        // ✅ Hapus cache Redis
+        yield redis_1.default.del(`user:profile:${userId}`);
         res.json({
             message: "Profile updated successfully",
             user: updatedUser,
@@ -192,6 +217,10 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.updateProfile = updateProfile;
 const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const nameQuery = req.query.name;
+    const cached = yield redis_1.default.get(`user:profile:${nameQuery}`);
+    if (cached) {
+        return res.json(JSON.parse(cached));
+    }
     try {
         const users = yield prisma.user.findMany({
             where: {
@@ -207,6 +236,7 @@ const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 avatar: true,
             },
         });
+        yield redis_1.default.set(`user:profile:${nameQuery}`, JSON.stringify(nameQuery), "EX", 60 * 5);
         res.json(users);
     }
     catch (err) {
