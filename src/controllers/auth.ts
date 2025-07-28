@@ -7,6 +7,7 @@ import session from "express-session";
 import path from "path";
 import fs from "fs";
 import { AuthRequest } from "../middlewares/auth";
+import redis from "../lib/redis";
 
 declare module "express-session" {
   interface SessionData {
@@ -103,7 +104,30 @@ export const logout = (req: Request, res: Response) => {
 
 export const getProfile = async (req: AuthRequest, res: Response) => {
   const userId = req.user?.userId;
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+  // Cek cache dulu
+  const cached = await redis.get(`user:profile:${userId}`);
+  if (cached) {
+    return res.json(JSON.parse(cached));
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatar: true,
+    },
+  });
+
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  // Simpan ke Redis 5 menit
+  await redis.set(`user:profile:${userId}`, JSON.stringify(user), "EX", 60 * 5);
+
   res.json(user);
 };
 
@@ -113,6 +137,11 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (isNaN(userId)) {
       return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const cached = await redis.get(`user:profile:${userId}`);
+    if (cached) {
+      return res.json(JSON.parse(cached));
     }
 
     const user = await prisma.user.findUnique({
@@ -142,6 +171,12 @@ export const getUserById = async (req: Request, res: Response) => {
     const followingCount = await prisma.followers.count({
       where: { userId: userId, flag: 2 },
     });
+    await redis.set(
+      `user:profile:${userId}`,
+      JSON.stringify(user),
+      "EX",
+      60 * 5
+    );
 
     res.json({
       ...user,
@@ -157,7 +192,7 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateProfile = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.userId; // pastikan pakai userId dari middleware
+    const userId = (req as any).user?.userId;
 
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -167,7 +202,6 @@ export const updateProfile = async (req: Request, res: Response) => {
     const avatarFile = req.file;
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -175,7 +209,6 @@ export const updateProfile = async (req: Request, res: Response) => {
     let avatarPath = user.avatar;
 
     if (avatarFile) {
-      // Hapus avatar lama jika ada
       if (avatarPath) {
         const oldPath = path.join(__dirname, "..", avatarPath);
         if (fs.existsSync(oldPath)) {
@@ -187,7 +220,6 @@ export const updateProfile = async (req: Request, res: Response) => {
         }
       }
 
-      // Simpan path baru
       avatarPath = `/uploads/avatars/${avatarFile.filename}`;
     }
 
@@ -198,6 +230,9 @@ export const updateProfile = async (req: Request, res: Response) => {
         avatar: avatarPath,
       },
     });
+
+    // ✅ Hapus cache Redis
+    await redis.del(`user:profile:${userId}`);
 
     res.json({
       message: "Profile updated successfully",
@@ -211,6 +246,11 @@ export const updateProfile = async (req: Request, res: Response) => {
 
 export const searchUsers = async (req: Request, res: Response) => {
   const nameQuery = req.query.name as string;
+
+  const cached = await redis.get(`user:profile:${nameQuery}`);
+  if (cached) {
+    return res.json(JSON.parse(cached));
+  }
 
   try {
     const users = await prisma.user.findMany({
@@ -227,6 +267,12 @@ export const searchUsers = async (req: Request, res: Response) => {
         avatar: true,
       },
     });
+    await redis.set(
+      `user:profile:${nameQuery}`,
+      JSON.stringify(nameQuery),
+      "EX",
+      60 * 5
+    );
 
     res.json(users);
   } catch (err) {

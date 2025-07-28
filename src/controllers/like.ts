@@ -1,12 +1,15 @@
 import { Request, Response } from "express";
 import { AuthRequest } from "../types/auth";
 import { PrismaClient } from "@prisma/client";
-
+import redis from "../lib/redis"; // pastikan ini sudah benar path-nya
 
 const prisma = new PrismaClient();
+
+// Helper key
+const getLikesCacheKey = (postId: number) => `post:${postId}:likes`;
+
 // 1. Like post
 export const likePost = async (req: AuthRequest, res: Response) => {
-  console.log("USER FROM TOKEN:", req.user); 
   const userId = req.user?.userId;
   const postId = Number(req.params.postId);
 
@@ -24,6 +27,9 @@ export const likePost = async (req: AuthRequest, res: Response) => {
     const like = await prisma.like.create({
       data: { userId, postId },
     });
+
+    // Hapus cache likes agar fresh saat diambil ulang
+    await redis.del(getLikesCacheKey(postId));
 
     res.status(201).json({ message: "Liked", like });
   } catch (error) {
@@ -47,9 +53,10 @@ export const unlikePost = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Like not found" });
     }
 
-    await prisma.like.delete({
-      where: { id: existingLike.id },
-    });
+    await prisma.like.delete({ where: { id: existingLike.id } });
+
+    // Hapus cache likes agar fresh saat diambil ulang
+    await redis.del(getLikesCacheKey(postId));
 
     res.json({ message: "Unliked" });
   } catch (error) {
@@ -57,17 +64,27 @@ export const unlikePost = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// 3. Get all likes for a post
+// 3. Get all likes for a post (with Redis cache)
 export const getLikesByPost = async (req: Request, res: Response) => {
   const postId = Number(req.params.postId);
+  const cacheKey = getLikesCacheKey(postId);
 
   try {
+    const cachedLikes = await redis.get(cacheKey);
+
+    if (cachedLikes) {
+      return res.json(JSON.parse(cachedLikes));
+    }
+
     const likes = await prisma.like.findMany({
       where: { postId },
       include: {
         user: { select: { id: true, name: true, avatar: true } },
       },
     });
+
+    // Cache selama 60 detik (optional bisa diatur)
+    await redis.set(cacheKey, JSON.stringify(likes), "EX", 60);
 
     res.json(likes);
   } catch (error) {

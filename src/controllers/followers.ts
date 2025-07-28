@@ -1,31 +1,30 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { AuthRequest } from "../middlewares/auth";
+import redis from "../lib/redis";
 
 const prisma = new PrismaClient();
+const CACHE_TTL = 60 * 5; // 5 minutes
 
 export const getFollowers = async (req: Request, res: Response) => {
+  const userId = Number(req.params.userId);
+  const cacheKey = `followers:${userId}`;
+
   try {
-    const userId = Number(req.params.userId);
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
+
     const followers = await prisma.followers.findMany({
-      where: {
-        userId: userId,
-        flag: 1,
-      },
+      where: { userId, flag: 1 },
       include: {
         user: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-          },
+          select: { id: true, name: true, avatar: true },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
+    await redis.set(cacheKey, JSON.stringify(followers), "EX", CACHE_TTL);
     res.json(followers);
   } catch (error) {
     console.error(error);
@@ -34,28 +33,24 @@ export const getFollowers = async (req: Request, res: Response) => {
 };
 
 export const getFollowing = async (req: Request, res: Response) => {
+  const userId = Number(req.params.userId);
+  const cacheKey = `following:${userId}`;
+
   try {
-    const userId = Number(req.params.userId);
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
 
     const following = await prisma.followers.findMany({
-      where: {
-        userId: userId,
-        flag: 2,
-      },
+      where: { userId, flag: 2 },
       include: {
         user: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-          },
+          select: { id: true, name: true, avatar: true },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
+    await redis.set(cacheKey, JSON.stringify(following), "EX", CACHE_TTL);
     res.json(following);
   } catch (error) {
     console.error(error);
@@ -63,44 +58,53 @@ export const getFollowing = async (req: Request, res: Response) => {
   }
 };
 
-export const unFollow = async (req: Request, res: Response) => {
-  try {
-    const id = Number(req.params.id);
+export const getFollowCount = async (req: Request, res: Response) => {
+  const userId = Number(req.params.userId);
+  const cacheKey = `followCount:${userId}`;
 
-    await prisma.followers.delete({
-      where: { id },
-    });
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
+
+    const [followers, following] = await Promise.all([
+      prisma.followers.count({ where: { userId, flag: 1 } }),
+      prisma.followers.count({ where: { userId, flag: 2 } }),
+    ]);
+
+    const data = { totalFollowers: followers, totalFollowing: following };
+    await redis.set(cacheKey, JSON.stringify(data), "EX", CACHE_TTL);
+
+    res.json(data);
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Gagal mengambil jumlah followers/following", error });
+  }
+};
+
+export const unFollow = async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+
+  try {
+    const followRecord = await prisma.followers.findUnique({ where: { id } });
+    if (!followRecord)
+      return res.status(404).json({ message: "Data follow tidak ditemukan" });
+
+    await prisma.followers.delete({ where: { id } });
+
+    // Invalidate both users' follow caches
+    await redis.del(
+      `followers:${followRecord.userId}`,
+      `following:${followRecord.userId}`,
+      `followCount:${followRecord.userId}`,
+      `suggested:${followRecord.userId}`
+    );
 
     res.json({ message: "Unfollow berhasil" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Gagal melakukan unfollow", error });
-  }
-};
-
-export const getFollowCount = async (req: Request, res: Response) => {
-  try {
-    const userId = Number(req.params.userId);
-
-    const followers = await prisma.followers.count({
-      where: {
-        userId: userId,
-        flag: 1,
-      },
-    });
-
-    const following = await prisma.followers.count({
-      where: {
-        userId,
-        flag: 2,
-      },
-    });
-
-    res.json({ totalFollowers: followers, totalFollowing: following });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengambil jumlah followers/following" });
   }
 };
 
@@ -113,21 +117,15 @@ export const createFollowers = async (req: AuthRequest, res: Response) => {
       .json({ message: "Kamu tidak bisa mengikuti dirimu sendiri" });
   }
 
-  const cekFollowers = await prisma.followers.findFirst({
-    where: { followId, userId, flag: 1 },
-  });
-
-  if (cekFollowers) {
-    return res.json({ message: "gagal follow" });
-  }
-
   try {
+    const existing = await prisma.followers.findFirst({
+      where: { followId, userId, flag: 1 },
+    });
+
+    if (existing) return res.json({ message: "Sudah mengikuti" });
+
     const followers = await prisma.followers.create({
-      data: {
-        followId,
-        userId,
-        flag: 1,
-      },
+      data: { followId, userId, flag: 1 },
     });
 
     const user = await prisma.user.findUnique({
@@ -145,6 +143,13 @@ export const createFollowers = async (req: AuthRequest, res: Response) => {
       message: "Kamu punya pengikut baru!",
     });
 
+    // Invalidate related caches
+    await redis.del(
+      `followers:${followId}`,
+      `followCount:${followId}`,
+      `suggested:${userId}`
+    );
+
     return res.status(201).json({ message: "Followed", followers });
   } catch (err) {
     console.error("Gagal mengikuti:", err);
@@ -157,25 +162,19 @@ export const createFollowing = async (req: AuthRequest, res: Response) => {
 
   try {
     const following = await prisma.followers.create({
-      data: {
-        followId: followId,
-        userId: userId,
-        flag: 2,
-      },
+      data: { followId, userId, flag: 2 },
     });
 
     const cekFollowers = await prisma.followers.findFirst({
       where: { followId: userId, userId: followId, flag: 1 },
     });
+
     if (!cekFollowers) {
-      const followers = await prisma.followers.create({
-        data: {
-          followId: userId,
-          userId: followId,
-          flag: 1,
-        },
+      await prisma.followers.create({
+        data: { followId: userId, userId: followId, flag: 1 },
       });
     }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { name: true },
@@ -191,9 +190,15 @@ export const createFollowing = async (req: AuthRequest, res: Response) => {
       message: "Kamu punya pengikut baru!",
     });
 
-    return res
-      .status(201)
-      .json({ message: "Following created", following: following });
+    await redis.del(
+      `following:${userId}`,
+      `followers:${followId}`,
+      `followCount:${userId}`,
+      `followCount:${followId}`,
+      `suggested:${userId}`
+    );
+
+    return res.status(201).json({ message: "Following created", following });
   } catch (err) {
     console.error("Gagal membuat following:", err);
     return res
@@ -203,21 +208,20 @@ export const createFollowing = async (req: AuthRequest, res: Response) => {
 };
 
 export const getSuggestedUsers = async (req: Request, res: Response) => {
-  try {
-    const userId = Number(req.params.userId);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: "Invalid user ID" });
-    }
+  const userId = Number(req.params.userId);
+  const cacheKey = `suggested:${userId}`;
 
-    // Ambil semua user yang **bukan** dirinya sendiri dan belum di-follow
+  if (isNaN(userId)) {
+    return res.status(400).json({ message: "Invalid user ID" });
+  }
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
+
     const following = await prisma.followers.findMany({
-      where: {
-        userId: userId,
-        flag: 2, // mengikuti siapa saja
-      },
-      select: {
-        followId: true,
-      },
+      where: { userId, flag: 2 },
+      select: { followId: true },
     });
 
     const followingIds = following.map((f) => f.followId);
@@ -225,18 +229,14 @@ export const getSuggestedUsers = async (req: Request, res: Response) => {
     const suggestedUsers = await prisma.user.findMany({
       where: {
         id: {
-          notIn: [...followingIds, userId], // bukan yang sudah difollow dan bukan diri sendiri
+          notIn: [...followingIds, userId],
         },
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatar: true,
-      },
-      take: 5, // misalnya ambil 5 saja
+      select: { id: true, name: true, email: true, avatar: true },
+      take: 5,
     });
 
+    await redis.set(cacheKey, JSON.stringify(suggestedUsers), "EX", CACHE_TTL);
     res.json(suggestedUsers);
   } catch (err) {
     console.error("Error fetching suggested users:", err);
