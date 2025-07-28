@@ -58,6 +58,10 @@ app.use("/auth", router);
 app.use("/post", postRouter);
 app.use("/comments", comments);
 
+app.get("/", (req, res) => {
+  res.send("🎉 Circle API is running!");
+});
+
 // WebSocket Events
 io.on("connection", (socket) => {
   console.log("✅ User connected:", socket.id);

@@ -49,6 +49,9 @@ app.use("/uploads", express_1.default.static("src/uploads/avatars"));
 app.use("/auth", route_1.router);
 app.use("/post", route_1.postRouter);
 app.use("/comments", route_1.comments);
+app.get("/", (req, res) => {
+    res.send("🎉 Circle API is running!");
+});
 // WebSocket Events
 io.on("connection", (socket) => {
     console.log("✅ User connected:", socket.id);
