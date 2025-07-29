@@ -227,9 +227,12 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
       message: "Profile updated successfully",
       user: updatedUser,
     });
-  } catch (err) {
-    console.error("Update error:", err);
-    res.status(500).json({ message: "Failed to update profile" });
+  } catch (err: any) {
+    console.error("Update error:", err.message);
+    console.error("Full error:", err);
+    res
+      .status(500)
+      .json({ message: "Failed to update profile", error: err.message });
   }
 };
 

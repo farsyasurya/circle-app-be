@@ -196,8 +196,11 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         });
     }
     catch (err) {
-        console.error("Update error:", err);
-        res.status(500).json({ message: "Failed to update profile" });
+        console.error("Update error:", err.message);
+        console.error("Full error:", err);
+        res
+            .status(500)
+            .json({ message: "Failed to update profile", error: err.message });
     }
 });
 exports.updateProfile = updateProfile;
