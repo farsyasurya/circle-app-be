@@ -188,8 +188,13 @@ export const getUserById = async (req: Request, res: Response) => {
   }
 };
 
-export const updateProfile = async (req: Request, res: Response) => {
+export const updateProfile = async (req: AuthRequest, res: Response) => {
   try {
+    console.log("=== UPDATE PROFILE ===");
+    console.log("req.user", (req as any).user);
+    console.log("req.body", req.body);
+    console.log("req.file", req.file);
+
     const userId = (req as any).user?.userId;
 
     if (!userId) {

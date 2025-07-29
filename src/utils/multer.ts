@@ -13,7 +13,7 @@ const avatarStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "uploads/avatars",
-    format: "png", // ✅ hanya satu format dan tanpa spasi
+    format: async () => "png", // ✅ hanya satu format dan tanpa spasi
     public_id: `${Date.now()}-${file.originalname.split(".")[0]}`,
     transformation: [{ width: 500, height: 500, crop: "limit" }],
   }),
@@ -23,7 +23,7 @@ const postStorage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => ({
     folder: "uploads/posts",
-    format: "jpg", // ✅ hanya satu format
+    format: async () => "jpg", // ✅ hanya satu format
     public_id: `${Date.now()}-${file.originalname.split(".")[0]}`,
     transformation: [{ width: 1000, crop: "limit" }],
   }),
