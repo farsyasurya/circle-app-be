@@ -16,42 +16,26 @@ const getAllPosts = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    try {
-        const [posts, total] = yield Promise.all([
-            prisma.post.findMany({
-                where: {
-                    deletedAt: null,
-                },
-                include: {
-                    user: {
-                        select: { id: true, name: true, avatar: true },
-                    },
-                    comments: {
-                        select: { id: true, content: true, userId: true, createdAt: true },
-                    },
-                    likes: true,
-                },
-                orderBy: {
-                    createdAt: "desc", // Post terbaru di atas
-                },
-                skip,
-                take: limit,
-            }),
-            prisma.post.count({
-                where: { deletedAt: null },
-            }),
-        ]);
-        res.json({
-            currentPage: page,
-            totalPages: Math.ceil(total / limit),
-            totalPosts: total,
-            posts,
-        });
-    }
-    catch (err) {
-        console.error("Error fetching posts:", err);
-        res.status(500).json({ message: "Failed to fetch posts" });
-    }
+    const posts = yield prisma.post.findMany({
+        where: {
+            deletedAt: null,
+        },
+        include: {
+            user: {
+                select: { id: true, name: true, avatar: true },
+            },
+            comments: {
+                select: { id: true, content: true, userId: true, createdAt: true },
+            },
+            likes: true,
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+        skip,
+        take: limit,
+    });
+    res.json(posts);
 });
 exports.getAllPosts = getAllPosts;
 const getPostsByUserId = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
