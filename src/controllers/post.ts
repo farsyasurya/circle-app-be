@@ -64,7 +64,8 @@ export const createPost = async (req: AuthRequest, res: Response) => {
   const { content } = req.body;
 
   try {
-    const image = req.file ? `/uploads/posts/${req.file.filename}` : null;
+    // ✅ Gunakan URL dari Cloudinary jika ada
+    const image = req.file ? req.file.path : null;
 
     const post = await prisma.post.create({
       data: {
@@ -79,6 +80,7 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    // Emit ke socket real-time
     const io = req.app.get("io");
     io.emit("newPost", post);
 

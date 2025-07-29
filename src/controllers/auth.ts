@@ -25,24 +25,22 @@ export const register = async (req: Request, res: Response) => {
   try {
     const exist = await prisma.user.findUnique({ where: { email } });
     if (exist) {
-      res.status(400).json({ message: "Email already used" });
-      return;
+      return res.status(400).json({ message: "Email already used" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    const avatar = req.file ? `/uploads/avatars/${req.file.filename}` : null;
+
+    // ✅ Ambil URL dari Cloudinary
+    const avatar = req.file ? req.file.path : null;
 
     const user = await prisma.user.create({
       data: { name, email, password: hashed, avatar },
     });
 
-    {
-      res.status(201).json({ message: "Register successful", user });
-      return;
-    }
+    return res.status(201).json({ message: "Register successful", user });
   } catch (err) {
-    res.status(500).json({ message: "Register failed", error: err });
-    return;
+    console.error("Register failed:", err);
+    return res.status(500).json({ message: "Register failed", error: err });
   }
 };
 
@@ -206,22 +204,8 @@ export const updateProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    let avatarPath = user.avatar;
-
-    if (avatarFile) {
-      if (avatarPath) {
-        const oldPath = path.join(__dirname, "..", avatarPath);
-        if (fs.existsSync(oldPath)) {
-          try {
-            fs.unlinkSync(oldPath);
-          } catch (err) {
-            console.error("Gagal hapus avatar lama:", err);
-          }
-        }
-      }
-
-      avatarPath = `/uploads/avatars/${avatarFile.filename}`;
-    }
+    // Ambil path Cloudinary jika ada
+    const avatarPath = avatarFile?.path || user.avatar;
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -231,7 +215,7 @@ export const updateProfile = async (req: Request, res: Response) => {
       },
     });
 
-    // ✅ Hapus cache Redis
+    // Hapus cache Redis
     await redis.del(`user:profile:${userId}`);
 
     res.json({
