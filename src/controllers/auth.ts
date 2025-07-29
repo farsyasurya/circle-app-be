@@ -247,12 +247,14 @@ export const updateProfile = async (req: Request, res: Response) => {
 export const searchUsers = async (req: Request, res: Response) => {
   const nameQuery = req.query.name as string;
 
-  const cached = await redis.get(`user:profile:${nameQuery}`);
-  if (cached) {
-    return res.json(JSON.parse(cached));
-  }
+  const cacheKey = `user:profile:${nameQuery}`;
 
   try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
     const users = await prisma.user.findMany({
       where: {
         name: {
@@ -267,12 +269,8 @@ export const searchUsers = async (req: Request, res: Response) => {
         avatar: true,
       },
     });
-    await redis.set(
-      `user:profile:${nameQuery}`,
-      JSON.stringify(nameQuery),
-      "EX",
-      60 * 5
-    );
+
+    await redis.set(cacheKey, JSON.stringify(users), "EX", 60 * 5); // ✅ simpan hasil pencarian ke Redis selama 5 menit
 
     res.json(users);
   } catch (err) {

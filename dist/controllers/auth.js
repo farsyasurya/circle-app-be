@@ -217,11 +217,12 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.updateProfile = updateProfile;
 const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const nameQuery = req.query.name;
-    const cached = yield redis_1.default.get(`user:profile:${nameQuery}`);
-    if (cached) {
-        return res.json(JSON.parse(cached));
-    }
+    const cacheKey = `user:profile:${nameQuery}`;
     try {
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached) {
+            return res.json(JSON.parse(cached));
+        }
         const users = yield prisma.user.findMany({
             where: {
                 name: {
@@ -236,7 +237,7 @@ const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 avatar: true,
             },
         });
-        yield redis_1.default.set(`user:profile:${nameQuery}`, JSON.stringify(nameQuery), "EX", 60 * 5);
+        yield redis_1.default.set(cacheKey, JSON.stringify(users), "EX", 60 * 5); // ✅ simpan hasil pencarian ke Redis selama 5 menit
         res.json(users);
     }
     catch (err) {
