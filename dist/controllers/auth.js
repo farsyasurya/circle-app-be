@@ -167,27 +167,23 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     console.log("=== UPDATE PROFILE ===");
     console.log("req.user", req.user);
     console.log("req.body", req.body);
-    console.log("req.file", req.file);
     const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
     if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
     }
-    const { name } = req.body;
-    const avatarFile = req.file;
+    const { name, avatar } = req.body; // sekarang kita terima avatar berupa URL string
     const user = yield prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
         return res.status(404).json({ message: "User not found" });
     }
-    // Ambil path Cloudinary jika ada
-    const avatarPath = (avatarFile === null || avatarFile === void 0 ? void 0 : avatarFile.path) || user.avatar;
     const updatedUser = yield prisma.user.update({
         where: { id: userId },
         data: {
             name: name || user.name,
-            avatar: avatarPath,
+            avatar: avatar || user.avatar, // avatar berupa URL string dari frontend
         },
     });
-    // Hapus cache Redis
+    // Hapus cache Redis jika ada
     yield redis_1.default.del(`user:profile:${userId}`);
     res.json({
         message: "Profile updated successfully",
@@ -225,3 +221,5 @@ const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.searchUsers = searchUsers;
+// https://yuxkigenrmbpvkrnqink.supabase.co
+//eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1eGtpZ2Vucm1icHZrcm5xaW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NTg3NjgsImV4cCI6MjA2OTMzNDc2OH0.Ax2PiNGhbwhvmLKXwNknXZ_VilEJHEQltf-yFJh_n98

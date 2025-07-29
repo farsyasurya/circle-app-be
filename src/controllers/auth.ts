@@ -190,36 +190,30 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {
   console.log("=== UPDATE PROFILE ===");
-  console.log("req.user", (req as any).user);
+  console.log("req.user", req.user);
   console.log("req.body", req.body);
-  console.log("req.file", req.file);
 
-  const userId = (req as any).user?.userId;
-
+  const userId = req.user?.userId;
   if (!userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const { name } = req.body;
-  const avatarFile = req.file;
+  const { name, avatar } = req.body; // sekarang kita terima avatar berupa URL string
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     return res.status(404).json({ message: "User not found" });
   }
 
-  // Ambil path Cloudinary jika ada
-  const avatarPath = avatarFile?.path || user.avatar;
-
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
       name: name || user.name,
-      avatar: avatarPath,
+      avatar: avatar || user.avatar, // avatar berupa URL string dari frontend
     },
   });
 
-  // Hapus cache Redis
+  // Hapus cache Redis jika ada
   await redis.del(`user:profile:${userId}`);
 
   res.json({
@@ -264,3 +258,6 @@ export const searchUsers = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to search users" });
   }
 };
+
+// https://yuxkigenrmbpvkrnqink.supabase.co
+//eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1eGtpZ2Vucm1icHZrcm5xaW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NTg3NjgsImV4cCI6MjA2OTMzNDc2OH0.Ax2PiNGhbwhvmLKXwNknXZ_VilEJHEQltf-yFJh_n98
