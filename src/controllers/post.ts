@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { AuthRequest } from "../middlewares/auth";
+import redis from "../lib/redis";
 
 const prisma = new PrismaClient();
 
@@ -9,27 +10,56 @@ export const getAllPosts = async (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
 
-  const posts = await prisma.post.findMany({
-    where: {
-      deletedAt: null,
-    },
-    include: {
-      user: {
-        select: { id: true, name: true, avatar: true },
-      },
-      comments: {
-        select: { id: true, content: true, userId: true, createdAt: true },
-      },
-      likes: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    skip,
-    take: limit,
-  });
+  const cacheKey = `posts:page:${page}:limit:${limit}`;
 
-  res.json(posts);
+  try {
+    // 🔍 Cek cache
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ⛏ Query ke database
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where: {
+          deletedAt: null,
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, avatar: true },
+          },
+          comments: {
+            select: { id: true, content: true, userId: true, createdAt: true },
+          },
+          likes: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: limit,
+      }),
+      prisma.post.count({
+        where: { deletedAt: null },
+      }),
+    ]);
+
+    const result = {
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalPosts: total,
+      posts,
+    };
+
+    // 💾 Simpan ke Redis selama 60 detik
+    await redis.set(cacheKey, JSON.stringify(result), "EX", 60);
+
+    res.json(result);
+  } catch (err) {
+    console.error("Error fetching posts:", err);
+    res.status(500).json({ message: "Failed to fetch posts" });
+  }
 };
 
 export const getPostsByUserId = async (req: Request, res: Response) => {

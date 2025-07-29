@@ -8,34 +8,64 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPostById = exports.getPostCount = exports.restorePost = exports.updatePost = exports.softDeletePost = exports.createPost = exports.getPostsByUserId = exports.getAllPosts = void 0;
 const client_1 = require("@prisma/client");
+const redis_1 = __importDefault(require("../lib/redis"));
 const prisma = new client_1.PrismaClient();
 const getAllPosts = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const posts = yield prisma.post.findMany({
-        where: {
-            deletedAt: null,
-        },
-        include: {
-            user: {
-                select: { id: true, name: true, avatar: true },
-            },
-            comments: {
-                select: { id: true, content: true, userId: true, createdAt: true },
-            },
-            likes: true,
-        },
-        orderBy: {
-            createdAt: "desc",
-        },
-        skip,
-        take: limit,
-    });
-    res.json(posts);
+    const cacheKey = `posts:page:${page}:limit:${limit}`;
+    try {
+        // 🔍 Cek cache
+        const cached = yield redis_1.default.get(cacheKey);
+        if (cached) {
+            return res.json(JSON.parse(cached));
+        }
+        // ⛏ Query ke database
+        const [posts, total] = yield Promise.all([
+            prisma.post.findMany({
+                where: {
+                    deletedAt: null,
+                },
+                include: {
+                    user: {
+                        select: { id: true, name: true, avatar: true },
+                    },
+                    comments: {
+                        select: { id: true, content: true, userId: true, createdAt: true },
+                    },
+                    likes: true,
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+                skip,
+                take: limit,
+            }),
+            prisma.post.count({
+                where: { deletedAt: null },
+            }),
+        ]);
+        const result = {
+            currentPage: page,
+            totalPages: Math.ceil(total / limit),
+            totalPosts: total,
+            posts,
+        };
+        // 💾 Simpan ke Redis selama 60 detik
+        yield redis_1.default.set(cacheKey, JSON.stringify(result), "EX", 60);
+        res.json(result);
+    }
+    catch (err) {
+        console.error("Error fetching posts:", err);
+        res.status(500).json({ message: "Failed to fetch posts" });
+    }
 });
 exports.getAllPosts = getAllPosts;
 const getPostsByUserId = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
