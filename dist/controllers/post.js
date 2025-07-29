@@ -76,6 +76,7 @@ const getPostsByUserId = (req, res) => __awaiter(void 0, void 0, void 0, functio
         res.json(posts);
     }
     catch (error) {
+        console.error(error);
         res.status(500).json({ message: "Gagal mengambil post user", error });
     }
 });
@@ -83,7 +84,8 @@ exports.getPostsByUserId = getPostsByUserId;
 const createPost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { content } = req.body;
     try {
-        const image = req.file ? `/uploads/posts/${req.file.filename}` : null;
+        // ✅ Gunakan URL dari Cloudinary jika ada
+        const image = req.file ? req.file.path : null;
         const post = yield prisma.post.create({
             data: {
                 content,
@@ -128,6 +130,7 @@ const updatePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             .json({ message: "Post updated successfully", data: updatedPost });
     }
     catch (error) {
+        console.error(error);
         res.status(500).json({ message: "Failed to update post" });
     }
 });
@@ -150,11 +153,15 @@ exports.softDeletePost = softDeletePost;
 const restorePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     try {
-        const post = yield prisma.post.findUnique({ where: { id: Number(id) } });
-        if (!post)
+        const post = yield prisma.post.findUnique({
+            where: { id: Number(id) },
+        });
+        if (!post) {
             return res.status(404).json({ message: "Post not found" });
-        if (!post.deletedAt)
+        }
+        if (!post.deletedAt) {
             return res.status(400).json({ message: "Post is not deleted" });
+        }
         const restoredPost = yield prisma.post.update({
             where: { id: Number(id) },
             data: { deletedAt: null },
@@ -165,6 +172,7 @@ const restorePost = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             .json({ message: "Post restored successfully", data: restoredPost });
     }
     catch (error) {
+        console.error(error);
         res.status(500).json({ message: "Failed to restore post" });
     }
 });
@@ -213,6 +221,7 @@ const getPostById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         res.status(200).json(post);
     }
     catch (error) {
+        console.error("Gagal mengambil post:", error);
         res.status(500).json({ message: "Gagal mengambil post", error });
     }
 });

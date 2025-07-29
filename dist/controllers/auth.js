@@ -17,8 +17,6 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const client_1 = require("@prisma/client");
 const dotenv_1 = __importDefault(require("dotenv"));
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
 const redis_1 = __importDefault(require("../lib/redis"));
 dotenv_1.default.config();
 const prisma = new client_1.PrismaClient();
@@ -28,22 +26,19 @@ const register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const exist = yield prisma.user.findUnique({ where: { email } });
         if (exist) {
-            res.status(400).json({ message: "Email already used" });
-            return;
+            return res.status(400).json({ message: "Email already used" });
         }
         const hashed = yield bcrypt_1.default.hash(password, 10);
-        const avatar = req.file ? `/uploads/avatars/${req.file.filename}` : null;
+        // ✅ Ambil URL dari Cloudinary
+        const avatar = req.file ? req.file.path : null;
         const user = yield prisma.user.create({
             data: { name, email, password: hashed, avatar },
         });
-        {
-            res.status(201).json({ message: "Register successful", user });
-            return;
-        }
+        return res.status(201).json({ message: "Register successful", user });
     }
     catch (err) {
-        res.status(500).json({ message: "Register failed", error: err });
-        return;
+        console.error("Register failed:", err);
+        return res.status(500).json({ message: "Register failed", error: err });
     }
 });
 exports.register = register;
@@ -170,6 +165,10 @@ exports.getUserById = getUserById;
 const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
+        console.log("=== UPDATE PROFILE ===");
+        console.log("req.user", req.user);
+        console.log("req.body", req.body);
+        console.log("req.file", req.file);
         const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
         if (!userId) {
             return res.status(401).json({ message: "Unauthorized" });
@@ -180,21 +179,8 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
-        let avatarPath = user.avatar;
-        if (avatarFile) {
-            if (avatarPath) {
-                const oldPath = path_1.default.join(__dirname, "..", avatarPath);
-                if (fs_1.default.existsSync(oldPath)) {
-                    try {
-                        fs_1.default.unlinkSync(oldPath);
-                    }
-                    catch (err) {
-                        console.error("Gagal hapus avatar lama:", err);
-                    }
-                }
-            }
-            avatarPath = `/uploads/avatars/${avatarFile.filename}`;
-        }
+        // Ambil path Cloudinary jika ada
+        const avatarPath = (avatarFile === null || avatarFile === void 0 ? void 0 : avatarFile.path) || user.avatar;
         const updatedUser = yield prisma.user.update({
             where: { id: userId },
             data: {
@@ -202,7 +188,7 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 avatar: avatarPath,
             },
         });
-        // ✅ Hapus cache Redis
+        // Hapus cache Redis
         yield redis_1.default.del(`user:profile:${userId}`);
         res.json({
             message: "Profile updated successfully",
