@@ -164,44 +164,35 @@ const getUserById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 exports.getUserById = getUserById;
 const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    try {
-        console.log("=== UPDATE PROFILE ===");
-        console.log("req.user", req.user);
-        console.log("req.body", req.body);
-        console.log("req.file", req.file);
-        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
-        if (!userId) {
-            return res.status(401).json({ message: "Unauthorized" });
-        }
-        const { name } = req.body;
-        const avatarFile = req.file;
-        const user = yield prisma.user.findUnique({ where: { id: userId } });
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-        // Ambil path Cloudinary jika ada
-        const avatarPath = (avatarFile === null || avatarFile === void 0 ? void 0 : avatarFile.path) || user.avatar;
-        const updatedUser = yield prisma.user.update({
-            where: { id: userId },
-            data: {
-                name: name || user.name,
-                avatar: avatarPath,
-            },
-        });
-        // Hapus cache Redis
-        yield redis_1.default.del(`user:profile:${userId}`);
-        res.json({
-            message: "Profile updated successfully",
-            user: updatedUser,
-        });
+    console.log("=== UPDATE PROFILE ===");
+    console.log("req.user", req.user);
+    console.log("req.body", req.body);
+    console.log("req.file", req.file);
+    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
+    if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
     }
-    catch (err) {
-        console.error("Update error:", err);
-        console.error("Full error object:", JSON.stringify(err, null, 2));
-        res
-            .status(500)
-            .json({ message: "Failed to update profile", error: err.message });
+    const { name } = req.body;
+    const avatarFile = req.file;
+    const user = yield prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+        return res.status(404).json({ message: "User not found" });
     }
+    // Ambil path Cloudinary jika ada
+    const avatarPath = (avatarFile === null || avatarFile === void 0 ? void 0 : avatarFile.path) || user.avatar;
+    const updatedUser = yield prisma.user.update({
+        where: { id: userId },
+        data: {
+            name: name || user.name,
+            avatar: avatarPath,
+        },
+    });
+    // Hapus cache Redis
+    yield redis_1.default.del(`user:profile:${userId}`);
+    res.json({
+        message: "Profile updated successfully",
+        user: updatedUser,
+    });
 });
 exports.updateProfile = updateProfile;
 const searchUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {

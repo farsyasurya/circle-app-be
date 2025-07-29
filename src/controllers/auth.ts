@@ -189,51 +189,43 @@ export const getUserById = async (req: Request, res: Response) => {
 };
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {
-  try {
-    console.log("=== UPDATE PROFILE ===");
-    console.log("req.user", (req as any).user);
-    console.log("req.body", req.body);
-    console.log("req.file", req.file);
+  console.log("=== UPDATE PROFILE ===");
+  console.log("req.user", (req as any).user);
+  console.log("req.body", req.body);
+  console.log("req.file", req.file);
 
-    const userId = (req as any).user?.userId;
+  const userId = (req as any).user?.userId;
 
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { name } = req.body;
-    const avatarFile = req.file;
-
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Ambil path Cloudinary jika ada
-    const avatarPath = avatarFile?.path || user.avatar;
-
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        name: name || user.name,
-        avatar: avatarPath,
-      },
-    });
-
-    // Hapus cache Redis
-    await redis.del(`user:profile:${userId}`);
-
-    res.json({
-      message: "Profile updated successfully",
-      user: updatedUser,
-    });
-  } catch (err: any) {
-    console.error("Update error:", err);
-    console.error("Full error object:", JSON.stringify(err, null, 2));
-    res
-      .status(500)
-      .json({ message: "Failed to update profile", error: err.message });
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
+
+  const { name } = req.body;
+  const avatarFile = req.file;
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Ambil path Cloudinary jika ada
+  const avatarPath = avatarFile?.path || user.avatar;
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name: name || user.name,
+      avatar: avatarPath,
+    },
+  });
+
+  // Hapus cache Redis
+  await redis.del(`user:profile:${userId}`);
+
+  res.json({
+    message: "Profile updated successfully",
+    user: updatedUser,
+  });
 };
 
 export const searchUsers = async (req: Request, res: Response) => {
