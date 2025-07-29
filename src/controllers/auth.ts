@@ -25,22 +25,24 @@ export const register = async (req: Request, res: Response) => {
   try {
     const exist = await prisma.user.findUnique({ where: { email } });
     if (exist) {
-      return res.status(400).json({ message: "Email already used" });
+      res.status(400).json({ message: "Email already used" });
+      return;
     }
 
     const hashed = await bcrypt.hash(password, 10);
-
-    // ✅ Ambil URL dari Cloudinary
-    const avatar = req.file ? req.file.path : null;
+    const avatar = req.file ? `/uploads/avatars/${req.file.filename}` : null;
 
     const user = await prisma.user.create({
       data: { name, email, password: hashed, avatar },
     });
 
-    return res.status(201).json({ message: "Register successful", user });
+    {
+      res.status(201).json({ message: "Register successful", user });
+      return;
+    }
   } catch (err) {
-    console.error("Register failed:", err);
-    return res.status(500).json({ message: "Register failed", error: err });
+    res.status(500).json({ message: "Register failed", error: err });
+    return;
   }
 };
 
@@ -188,38 +190,58 @@ export const getUserById = async (req: Request, res: Response) => {
   }
 };
 
-export const updateProfile = async (req: AuthRequest, res: Response) => {
-  console.log("=== UPDATE PROFILE ===");
-  console.log("req.user", req.user);
-  console.log("req.body", req.body);
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
 
-  const userId = req.user?.userId;
-  if (!userId) {
-    return res.status(401).json({ message: "Unauthorized" });
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { name } = req.body;
+    const avatarFile = req.file;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let avatarPath = user.avatar;
+
+    if (avatarFile) {
+      if (avatarPath) {
+        const oldPath = path.join(__dirname, "..", avatarPath);
+        if (fs.existsSync(oldPath)) {
+          try {
+            fs.unlinkSync(oldPath);
+          } catch (err) {
+            console.error("Gagal hapus avatar lama:", err);
+          }
+        }
+      }
+
+      avatarPath = `/uploads/avatars/${avatarFile.filename}`;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: name || user.name,
+        avatar: avatarPath,
+      },
+    });
+
+    // ✅ Hapus cache Redis
+    await redis.del(`user:profile:${userId}`);
+
+    res.json({
+      message: "Profile updated successfully",
+      user: updatedUser,
+    });
+  } catch (err) {
+    console.error("Update error:", err);
+    res.status(500).json({ message: "Failed to update profile" });
   }
-
-  const { name, avatar } = req.body; // sekarang kita terima avatar berupa URL string
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
-  }
-
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      name: name || user.name,
-      avatar: avatar || user.avatar, // avatar berupa URL string dari frontend
-    },
-  });
-
-  // Hapus cache Redis jika ada
-  await redis.del(`user:profile:${userId}`);
-
-  res.json({
-    message: "Profile updated successfully",
-    user: updatedUser,
-  });
 };
 
 export const searchUsers = async (req: Request, res: Response) => {
@@ -258,6 +280,3 @@ export const searchUsers = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to search users" });
   }
 };
-
-// https://yuxkigenrmbpvkrnqink.supabase.co
-//eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1eGtpZ2Vucm1icHZrcm5xaW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NTg3NjgsImV4cCI6MjA2OTMzNDc2OH0.Ax2PiNGhbwhvmLKXwNknXZ_VilEJHEQltf-yFJh_n98

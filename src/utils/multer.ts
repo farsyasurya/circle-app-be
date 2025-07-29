@@ -1,33 +1,19 @@
-// lib/multer.ts
-import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
 import multer from "multer";
+import path from "path";
+import fs from "fs";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
-  api_key: process.env.CLOUDINARY_API_KEY!,
-  api_secret: process.env.CLOUDINARY_API_SECRET!,
-});
+const createStorage = (folder: string) => {
+  const uploadPath = path.join(__dirname, "../../uploads", folder);
+  fs.mkdirSync(uploadPath, { recursive: true });
 
-const avatarStorage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => ({
-    folder: "uploads/avatars",
-    format: async () => "png", // ✅ hanya satu format dan tanpa spasi
-    public_id: `${Date.now()}-${file.originalname.split(".")[0]}`,
-    transformation: [{ width: 500, height: 500, crop: "limit" }],
-  }),
-});
+  return multer.diskStorage({
+    destination: (_, __, cb) => cb(null, uploadPath),
+    filename: (_, file, cb) => {
+      const uniqueName = `${Date.now()}-${file.originalname}`;
+      cb(null, uniqueName);
+    },
+  });
+};
 
-const postStorage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => ({
-    folder: "uploads/posts",
-    format: async () => "jpg", // ✅ hanya satu format
-    public_id: `${Date.now()}-${file.originalname.split(".")[0]}`,
-    transformation: [{ width: 1000, crop: "limit" }],
-  }),
-});
-
-export const uploadAvatar = multer({ storage: avatarStorage });
-export const uploadPostImage = multer({ storage: postStorage });
+export const uploadAvatar = multer({ storage: createStorage("avatars") });
+export const uploadPostImage = multer({ storage: createStorage("posts") });

@@ -3,3 +3,4 @@ node_modules
 .env
 
 /src/generated/prisma
+circle-app-c81f0-firebase-adminsdk-fbsvc-b73a358cce.json

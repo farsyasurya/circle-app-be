@@ -8,71 +8,55 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPostById = exports.getPostCount = exports.restorePost = exports.softDeletePost = exports.updatePost = exports.createPost = exports.getPostsByUserId = exports.getAllPosts = void 0;
+exports.getPostById = exports.getPostCount = exports.restorePost = exports.updatePost = exports.softDeletePost = exports.createPost = exports.getPostsByUserId = exports.getAllPosts = void 0;
 const client_1 = require("@prisma/client");
-const redis_1 = __importDefault(require("../lib/redis"));
 const prisma = new client_1.PrismaClient();
-const getCacheKey = {
-    allPosts: (page, limit) => `posts:page=${page}:limit=${limit}`,
-    userPosts: (userId) => `posts:user:${userId}`,
-    postById: (id) => `post:${id}`,
-    postCount: (userId) => `post:count:${userId}`,
-};
 const getAllPosts = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const cacheKey = getCacheKey.allPosts(page, limit);
-    try {
-        const cached = yield redis_1.default.get(cacheKey);
-        if (cached) {
-            return res.json(JSON.parse(cached));
-        }
-        const posts = yield prisma.post.findMany({
-            where: { deletedAt: null },
-            include: {
-                user: { select: { id: true, name: true, avatar: true } },
-                comments: {
-                    select: { id: true, content: true, userId: true, createdAt: true },
-                },
-                likes: true,
+    const posts = yield prisma.post.findMany({
+        where: {
+            deletedAt: null,
+        },
+        include: {
+            user: {
+                select: { id: true, name: true, avatar: true },
             },
-            orderBy: { createdAt: "desc" },
-            skip,
-            take: limit,
-        });
-        yield redis_1.default.set(cacheKey, JSON.stringify(posts), "EX", 60); // cache 1 menit
-        res.json(posts);
-    }
-    catch (error) {
-        res.status(500).json({ message: "Gagal mengambil post", error });
-    }
+            comments: {
+                select: { id: true, content: true, userId: true, createdAt: true },
+            },
+            likes: true,
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+        skip,
+        take: limit,
+    });
+    res.json(posts);
 });
 exports.getAllPosts = getAllPosts;
 const getPostsByUserId = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const userId = Number(req.params.userId);
-    const cacheKey = getCacheKey.userPosts(userId);
     try {
-        const cached = yield redis_1.default.get(cacheKey);
-        if (cached) {
-            return res.json(JSON.parse(cached));
-        }
+        const userId = Number(req.params.userId);
         const posts = yield prisma.post.findMany({
-            where: { userId, deletedAt: null },
+            where: {
+                userId,
+                deletedAt: null,
+            },
             include: {
                 user: { select: { id: true, name: true, avatar: true } },
                 comments: {
-                    include: { user: { select: { id: true, name: true, avatar: true } } },
+                    include: {
+                        user: { select: { id: true, name: true, avatar: true } },
+                    },
                 },
                 likes: true,
             },
             orderBy: { createdAt: "desc" },
         });
-        yield redis_1.default.set(cacheKey, JSON.stringify(posts), "EX", 60);
         res.json(posts);
     }
     catch (error) {
@@ -84,8 +68,7 @@ exports.getPostsByUserId = getPostsByUserId;
 const createPost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { content } = req.body;
     try {
-        // ✅ Gunakan URL dari Cloudinary jika ada
-        const image = req.file ? req.file.path : null;
+        const image = req.file ? `/uploads/posts/${req.file.filename}` : null;
         const post = yield prisma.post.create({
             data: {
                 content,
@@ -98,22 +81,41 @@ const createPost = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 likes: true,
             },
         });
-        yield redis_1.default.flushall(); // atau selectively delete related keys
         const io = req.app.get("io");
         io.emit("newPost", post);
-        res.status(201).json({ message: "Post created", post });
+        return res.status(201).json({ message: "Post created", post });
     }
     catch (err) {
-        res.status(500).json({ message: "Failed to create post", error: err });
+        console.error("Gagal membuat post:", err);
+        return res
+            .status(500)
+            .json({ message: "Failed to create post", error: err });
     }
 });
 exports.createPost = createPost;
+const softDeletePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const postId = Number(req.params.id);
+        const post = yield prisma.post.update({
+            where: { id: postId },
+            data: { deletedAt: new Date() },
+        });
+        res.json({ message: "Post berhasil dihapus (soft delete)", post });
+    }
+    catch (error) {
+        res.status(500).json({ message: "Gagal menghapus post", error });
+    }
+});
+exports.softDeletePost = softDeletePost;
 const updatePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     const { content, image } = req.body;
     try {
         const existingPost = yield prisma.post.findFirst({
-            where: { id: Number(id), deletedAt: null },
+            where: {
+                id: Number(id),
+                deletedAt: null,
+            },
         });
         if (!existingPost) {
             return res
@@ -122,9 +124,11 @@ const updatePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         }
         const updatedPost = yield prisma.post.update({
             where: { id: Number(id) },
-            data: { content, image },
+            data: {
+                content,
+                image,
+            },
         });
-        yield redis_1.default.del(getCacheKey.postById(Number(id)));
         res
             .status(200)
             .json({ message: "Post updated successfully", data: updatedPost });
@@ -135,21 +139,6 @@ const updatePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.updatePost = updatePost;
-const softDeletePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const postId = Number(req.params.id);
-        const post = yield prisma.post.update({
-            where: { id: postId },
-            data: { deletedAt: new Date() },
-        });
-        yield redis_1.default.del(getCacheKey.postById(postId));
-        res.json({ message: "Post berhasil dihapus (soft delete)", post });
-    }
-    catch (error) {
-        res.status(500).json({ message: "Gagal menghapus post", error });
-    }
-});
-exports.softDeletePost = softDeletePost;
 const restorePost = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     try {
@@ -166,7 +155,6 @@ const restorePost = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             where: { id: Number(id) },
             data: { deletedAt: null },
         });
-        yield redis_1.default.del(getCacheKey.postById(Number(id)));
         res
             .status(200)
             .json({ message: "Post restored successfully", data: restoredPost });
@@ -178,16 +166,14 @@ const restorePost = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 });
 exports.restorePost = restorePost;
 const getPostCount = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const userId = Number(req.params.userId);
-    const cacheKey = getCacheKey.postCount(userId);
     try {
-        const cached = yield redis_1.default.get(cacheKey);
-        if (cached)
-            return res.json({ totalPosts: Number(cached) });
+        const userId = Number(req.params.userId);
         const count = yield prisma.post.count({
-            where: { deletedAt: null, userId },
+            where: {
+                deletedAt: null,
+                userId,
+            },
         });
-        yield redis_1.default.set(cacheKey, count.toString(), "EX", 60);
         res.json({ totalPosts: count });
     }
     catch (error) {
@@ -196,18 +182,16 @@ const getPostCount = (req, res) => __awaiter(void 0, void 0, void 0, function* (
 });
 exports.getPostCount = getPostCount;
 const getPostById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const postId = Number(req.params.id);
-    const cacheKey = getCacheKey.postById(postId);
     try {
-        const cached = yield redis_1.default.get(cacheKey);
-        if (cached)
-            return res.status(200).json(JSON.parse(cached));
+        const postId = Number(req.params.id);
         const post = yield prisma.post.findUnique({
             where: { id: postId },
             include: {
                 user: { select: { id: true, name: true, avatar: true } },
                 comments: {
-                    include: { user: { select: { id: true, name: true, avatar: true } } },
+                    include: {
+                        user: { select: { id: true, name: true, avatar: true } },
+                    },
                 },
                 likes: true,
             },
@@ -217,7 +201,6 @@ const getPostById = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 .status(404)
                 .json({ message: "Post tidak ditemukan atau sudah dihapus." });
         }
-        yield redis_1.default.set(cacheKey, JSON.stringify(post), "EX", 60);
         res.status(200).json(post);
     }
     catch (error) {
