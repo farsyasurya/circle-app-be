@@ -196,8 +196,8 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         });
     }
     catch (err) {
-        console.error("Update error:", err.message);
-        console.error("Full error:", err);
+        console.error("Update error:", err);
+        console.error("Full error object:", JSON.stringify(err, null, 2));
         res
             .status(500)
             .json({ message: "Failed to update profile", error: err.message });
