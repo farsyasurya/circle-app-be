@@ -43,13 +43,13 @@ export const postRouter = express.Router();
 export const comments = express.Router();
 const prisma = new PrismaClient();
 
-router.post("/register", uploadAvatar.single("avatar"), register);
+router.post("/register", uploadAvatar.single("file"), register);
 router.post("/login", login);
 router.post("/logout", logout);
 router.patch(
   "/update-profile",
   authenticate,
-  uploadAvatar.single("avatar"),
+  uploadAvatar.single("file"),
   updateProfile
 );
 router.get("/profile", authenticate, getProfile);
@@ -67,7 +67,7 @@ router.get("/suggested-users/:userId", authenticate, getSuggestedUsers);
 postRouter.post(
   "/create",
   authenticate,
-  uploadPostImage.single("posts"),
+  uploadPostImage.single("file"),
   createPost
 );
 
